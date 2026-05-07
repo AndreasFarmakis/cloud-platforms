@@ -1,0 +1,26 @@
+# secrets
+.env
+
+# docker volumes / persistent data
+rabbitmq/data/
+minio/data/
+postgres/data/
+wordpress/db_data/
+wordpress/data/
+# thingsboard runtime data (ignore)
+thingsboard/db/
+
+# allow exports
+!thingsboard/exports/
+!thingsboard/exports/*.json
+
+# logs
+*.log
+
+# node-red runtime (do not commit)
+node-red/data/
+node-red/node_modules/
+
+# thingsboard runtime markers
+thingsboard/.firstlaunch
+thingsboard/.upgradeversion

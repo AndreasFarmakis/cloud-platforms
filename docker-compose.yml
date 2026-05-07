@@ -1,0 +1,255 @@
+version: "3.8"
+
+networks:
+  cloud-net:
+    external: true
+
+services:
+  # -------------------------
+  # RabbitMQ
+  # -------------------------
+  rabbitmq:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        BASE_IMAGE: rabbitmq:3.12-management
+    image: ${IMAGE_PREFIX}/rabbitmq:${IMAGE_TAG}
+    container_name: rabbitmq
+    restart: always
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS}
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - ./rabbitmq/data:/var/lib/rabbitmq
+    networks:
+      - cloud-net
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  # -------------------------
+  # MinIO
+  # -------------------------
+  minio:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        BASE_IMAGE: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    image: ${IMAGE_PREFIX}/minio:${IMAGE_TAG}
+    container_name: minio
+    restart: always
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      TZ: ${TZ}
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - ./minio/data:/data
+    networks:
+      - cloud-net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9000/minio/health/ready >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  # -------------------------
+  # Node-RED 
+  # -------------------------
+  node-red:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        BASE_IMAGE: gkousiou/nodelab:latest
+    image: ${IMAGE_PREFIX}/node-red:${IMAGE_TAG}
+    container_name: node-red
+    restart: always
+    user: "1000:1000"
+    environment:
+      TZ: ${TZ}
+    ports:
+      - "1880:1880"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    volumes:
+      - ./node-red/data:/data
+    networks:
+      - cloud-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:1880"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # -------------------------
+  # ThingsBoard 
+  # -------------------------
+  mytb:
+    image: thingsboard/tb-postgres:3.8.1
+    container_name: thingsboard
+    restart: always
+    ports:
+      - "8080:9090"
+      - "1883:1883"
+      - "7070:7070"
+      - "5683-5688:5683-5688/udp"
+    environment:
+      TZ: ${TZ}
+      TB_QUEUE_TYPE: ${TB_QUEUE_TYPE}
+      TB_QUEUE_RABBIT_MQ_USERNAME: ${TB_RMQ_USER}
+      TB_QUEUE_RABBIT_MQ_PASSWORD: ${TB_RMQ_PASS}
+      TB_QUEUE_RABBIT_MQ_HOST: rabbitmq
+      TB_QUEUE_RABBIT_MQ_PORT: 5672
+      SECURITY_BASIC_ENABLED: "true"
+      SECURITY_OAUTH2_ENABLED: "false"
+    volumes:
+      - ./thingsboard:/data
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - cloud-net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9090 >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+
+  # -------------------------
+  # Keycloak DB (Postgres) 
+  # -------------------------
+  keycloak_db:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        BASE_IMAGE: postgres:16
+    image: ${IMAGE_PREFIX}/postgres:${IMAGE_TAG}
+    container_name: keycloak_db
+    restart: always
+    environment:
+      POSTGRES_DB: ${KC_DB_NAME}
+      POSTGRES_USER: ${KC_DB_USER}
+      POSTGRES_PASSWORD: ${KC_DB_PASSWORD}
+      TZ: ${TZ}
+    volumes:
+      - ./postgres/data:/var/lib/postgresql/data
+    networks:
+      - cloud-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${KC_DB_USER} -d ${KC_DB_NAME} || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  # -------------------------
+  # Keycloak
+  # -------------------------
+  keycloak:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        BASE_IMAGE: quay.io/keycloak/keycloak:24.0
+    image: ${IMAGE_PREFIX}/keycloak:${IMAGE_TAG}
+    container_name: keycloak
+    restart: always
+    command: start-dev
+    environment:
+      TZ: ${TZ}
+      KEYCLOAK_ADMIN: ${KC_ADMIN}
+      KEYCLOAK_ADMIN_PASSWORD: ${KC_ADMIN_PASSWORD}
+      KC_DB: postgres
+      KC_DB_URL_HOST: keycloak_db
+      KC_DB_URL_DATABASE: ${KC_DB_NAME}
+      KC_DB_USERNAME: ${KC_DB_USER}
+      KC_DB_PASSWORD: ${KC_DB_PASSWORD}
+      KC_HEALTH_ENABLED: "true"
+    depends_on:
+      keycloak_db:
+        condition: service_healthy
+    ports:
+      - "${KC_PORT}:8080"
+    networks:
+      - cloud-net
+
+  # -------------------------
+  # WordPress DB (MariaDB)
+  # -------------------------
+  wordpress_db:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        BASE_IMAGE: mariadb:10.11
+    image: ${IMAGE_PREFIX}/wordpress-db:${IMAGE_TAG}
+    container_name: wordpress_db
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${WP_DB_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${WP_DB_NAME}
+      MYSQL_USER: ${WP_DB_USER}
+      MYSQL_PASSWORD: ${WP_DB_PASSWORD}
+      TZ: ${TZ}
+    volumes:
+      - ./wordpress/db_data:/var/lib/mysql
+    networks:
+      - cloud-net
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p${WP_DB_ROOT_PASSWORD} >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  # -------------------------
+  # WordPress
+  # -------------------------
+  wordpress:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        BASE_IMAGE: wordpress:6.4
+    image: ${IMAGE_PREFIX}/wordpress:${IMAGE_TAG}
+    container_name: wordpress_app
+    restart: always
+    depends_on:
+      - wordpress_db
+      - keycloak
+    ports:
+      - "${WP_PORT}:80"
+    environment:
+      TZ: ${TZ}
+      WORDPRESS_DB_HOST: wordpress_db:3306
+      WORDPRESS_DB_USER: ${WP_DB_USER}
+      WORDPRESS_DB_PASSWORD: ${WP_DB_PASSWORD}
+      WORDPRESS_DB_NAME: ${WP_DB_NAME}
+    volumes:
+      - ./wordpress/data:/var/www/html
+    networks:
+      - cloud-net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost/wp-login.php >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 8s
+      retries: 20
+      start_period: 40s
