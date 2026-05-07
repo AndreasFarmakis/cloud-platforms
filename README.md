@@ -1,34 +1,36 @@
-# Cloud Platforms 
+# Cloud Platforms
 
-## Περιγραφή
-Η παρούσα εργασία υλοποιεί ένα **event-driven e-shop** βασισμένο σε WordPress
-(WooCommerce), με κεντρική διαχείριση ταυτότητας μέσω **Keycloak (SSO)** και
-παρακολούθηση ενεργειών χρηστών μέσω **ThingsBoard**.
+## Description
+This project implements an **event-driven e-shop** based on WordPress
+(WooCommerce), with centralized identity management through
+**Keycloak (SSO)** and user activity monitoring using **ThingsBoard**.
 
-Κάθε ενέργεια χρήστη (login, προσθήκη προϊόντος στο καλάθι, παραγγελία) μετατρέπεται
-σε event, επεξεργάζεται μέσω **Node-RED**, δρομολογείται ασύγχρονα με **RabbitMQ**,
-αποθηκεύεται σε **MinIO** και οπτικοποιείται σε πραγματικό χρόνο σε dashboard
-του **ThingsBoard**.
+Each user action (login, adding products to the cart, placing an order)
+is transformed into an event, processed through **Node-RED**,
+asynchronously routed with **RabbitMQ**, stored in **MinIO**,
+and visualized in real time on a **ThingsBoard** dashboard.
 
 ---
 
-## Σενάριο Εφαρμογής
-1. Ο χρήστης συνδέεται στο WordPress μέσω **Keycloak (Single Sign-On)**.
-2. Το WordPress παράγει events:
+## Application Workflow
+
+1. The user logs into WordPress using **Keycloak (Single Sign-On)**.
+2. WordPress generates events such as:
    - `login`
    - `cart_add`
    - `order`
-3. Τα events αποστέλλονται στο **Node-RED**.
-4. Το **Node-RED**:
-   - προωθεί τα events στο RabbitMQ (message broker),
-   - καταναλώνει τα events από το RabbitMQ για περαιτέρω επεξεργασία,
-   - αποστέλλει telemetry δεδομένα στο **ThingsBoard**,
-   - αποθηκεύει τα events σε **MinIO** (object storage).
-5. Το **ThingsBoard dashboard** εμφανίζει τα events σε πραγματικό χρόνο.
+3. The events are sent to **Node-RED**.
+4. **Node-RED**:
+   - forwards events to RabbitMQ (message broker),
+   - consumes events from RabbitMQ for further processing,
+   - sends telemetry data to **ThingsBoard**,
+   - stores events in **MinIO** (object storage).
+5. The **ThingsBoard dashboard** displays events in real time.
 
 ---
 
-## Τεχνολογίες που χρησιμοποιούνται
+## Technologies Used
+
 - Docker & Docker Compose
 - WordPress (WooCommerce)
 - Keycloak (Identity & Access Management – SSO)
@@ -39,9 +41,10 @@
 
 ---
 
-## Αρχιτεκτονική (High-Level)
+## High-Level Architecture
+
 WordPress 
-→ Node-RED
-→ RabbitMQ
-→ ThingsBoard
-→ MinIO 
+→ Node-RED 
+→ RabbitMQ 
+→ ThingsBoard 
+→ MinIO
